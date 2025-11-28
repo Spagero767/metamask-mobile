@@ -12,13 +12,17 @@ import Logger from '../../../../../../util/Logger';
 import { endTrace } from '../../../../../../util/trace';
 import { processFiatOrder } from '../../../index';
 
+const mockTrackEvent = jest.fn();
+
+jest.mock('../../../hooks/useAnalytics', () => () => mockTrackEvent);
+
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockSetNavigationOptions = jest.fn();
 const mockReset = jest.fn();
 const mockDispatch = jest.fn();
 
-const mockOrderData = {
+const createMockOrderData = () => ({
   id: 'test-order-id',
   state: FIAT_ORDER_STATES.CREATED,
   data: {
@@ -53,7 +57,9 @@ const mockOrderData = {
       },
     ],
   },
-};
+});
+
+let mockOrderData = createMockOrderData();
 
 const mockUseDepositSdkMethodInitialState = {
   data: null,
@@ -146,7 +152,15 @@ describe('BankDetails Component', () => {
     (
       processFiatOrder as jest.MockedFunction<typeof processFiatOrder>
     ).mockResolvedValue(undefined);
-    mockOrderData.state = FIAT_ORDER_STATES.CREATED;
+    // Reset mock order data to a fresh copy to avoid test pollution
+    mockOrderData = createMockOrderData();
+    // Reset useSelector mock to point to the new mockOrderData
+    const mockUseSelector = jest.requireMock('react-redux').useSelector;
+    mockUseSelector.mockImplementation(() => mockOrderData);
+    // Reset shared mock state
+    mockUseDepositSdkMethodInitialState.error = null;
+    mockUseDepositSdkMethodInitialState.data = null;
+    mockUseDepositSdkMethodInitialState.isFetching = false;
   });
 
   it('render matches snapshot', () => {
@@ -219,13 +233,17 @@ describe('BankDetails Component', () => {
   });
 
   it('displays confirmPaymentError when it has a value', async () => {
-    mockUseDepositSdkMethodInitialState.error = 'Payment confirmation failed';
     mockConfirmPayment = jest
       .fn()
       .mockRejectedValue('Payment confirmation failed');
 
+    // Set order to PENDING to prevent auto-refresh on mount
+    mockOrderData.state = FIAT_ORDER_STATES.PENDING;
     render(BankDetails);
-    fireEvent.press(screen.getByText('Confirm transfer'));
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('Confirm transfer'));
+    });
 
     await waitFor(() => {
       expect(screen.getByText('Payment confirmation failed')).toBeTruthy();
@@ -278,9 +296,12 @@ describe('BankDetails Component', () => {
   it('calls Logger.error when handleOnRefresh fails', async () => {
     (
       processFiatOrder as jest.MockedFunction<typeof processFiatOrder>
-    ).mockRejectedValueOnce(new Error('Fetch error'));
+    ).mockRejectedValue(new Error('Fetch error'));
 
     const mockLoggerError = jest.spyOn(Logger, 'error');
+
+    // Set order to PENDING to prevent auto-refresh on mount
+    mockOrderData.state = FIAT_ORDER_STATES.PENDING;
     render(BankDetails);
 
     await act(async () => {
@@ -300,6 +321,7 @@ describe('BankDetails Component', () => {
     });
 
     const mockLoggerError = jest.spyOn(Logger, 'error');
+    mockOrderData.state = FIAT_ORDER_STATES.PENDING;
     render(BankDetails);
     fireEvent.press(screen.getByTestId('main-action-button'));
     expect(mockConfirmPayment).toHaveBeenCalledWith(
@@ -315,6 +337,7 @@ describe('BankDetails Component', () => {
     });
 
     const mockLoggerError = jest.spyOn(Logger, 'error');
+    mockOrderData.state = FIAT_ORDER_STATES.PENDING;
     render(BankDetails);
     fireEvent.press(screen.getByText('Cancel order'));
     expect(mockCancelOrder).toHaveBeenCalled();
@@ -365,6 +388,7 @@ describe('BankDetails Component', () => {
 
     const mockLoggerError = jest.spyOn(Logger, 'error');
 
+    mockOrderData.state = FIAT_ORDER_STATES.PENDING;
     render(BankDetails);
 
     fireEvent.press(screen.getByTestId('main-action-button'));
@@ -396,6 +420,7 @@ describe('BankDetails Component', () => {
 
     const mockLoggerError = jest.spyOn(Logger, 'error');
 
+    mockOrderData.state = FIAT_ORDER_STATES.PENDING;
     render(BankDetails);
 
     fireEvent.press(screen.getByTestId('main-action-button'));
@@ -417,6 +442,7 @@ describe('BankDetails Component', () => {
 
       mockConfirmPayment = jest.fn().mockRejectedValue(axiosError);
 
+      mockOrderData.state = FIAT_ORDER_STATES.PENDING;
       render(BankDetails);
 
       fireEvent.press(screen.getByTestId('main-action-button'));
@@ -440,6 +466,7 @@ describe('BankDetails Component', () => {
 
       mockCancelOrder = jest.fn().mockRejectedValue(axiosError);
 
+      mockOrderData.state = FIAT_ORDER_STATES.PENDING;
       render(BankDetails);
 
       fireEvent.press(screen.getByText('Cancel order'));
@@ -462,9 +489,13 @@ describe('BankDetails Component', () => {
       mockConfirmPayment = jest.fn().mockRejectedValue(regularError);
 
       const mockLoggerError = jest.spyOn(Logger, 'error');
+      // Set order to PENDING to prevent auto-refresh on mount
+      mockOrderData.state = FIAT_ORDER_STATES.PENDING;
       render(BankDetails);
 
-      fireEvent.press(screen.getByTestId('main-action-button'));
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('main-action-button'));
+      });
 
       await waitFor(() => {
         expect(mockLoggerError).toHaveBeenCalledWith(
@@ -481,6 +512,7 @@ describe('BankDetails Component', () => {
       mockCancelOrder = jest.fn().mockRejectedValue(regularError);
 
       const mockLoggerError = jest.spyOn(Logger, 'error');
+      mockOrderData.state = FIAT_ORDER_STATES.PENDING;
       render(BankDetails);
 
       fireEvent.press(screen.getByText('Cancel order'));
@@ -502,6 +534,8 @@ describe('BankDetails Component', () => {
         processFiatOrder as jest.MockedFunction<typeof processFiatOrder>
       ).mockRejectedValue(axiosError);
 
+      // Set order to PENDING to prevent auto-refresh on mount
+      mockOrderData.state = FIAT_ORDER_STATES.PENDING;
       render(BankDetails);
 
       await act(async () => {
@@ -530,6 +564,7 @@ describe('BankDetails Component', () => {
       ).mockRejectedValue(regularError);
 
       const mockLoggerError = jest.spyOn(Logger, 'error');
+      mockOrderData.state = FIAT_ORDER_STATES.PENDING;
       render(BankDetails);
 
       await act(async () => {
@@ -556,6 +591,7 @@ describe('BankDetails Component', () => {
       mockLogoutFromProvider.mockRejectedValue(logoutError);
 
       const mockLoggerError = jest.spyOn(Logger, 'error');
+      mockOrderData.state = FIAT_ORDER_STATES.PENDING;
       render(BankDetails);
 
       fireEvent.press(screen.getByTestId('main-action-button'));
